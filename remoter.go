@@ -72,14 +72,20 @@ func Dial(waitCtx context.Context, sshConf map[string]interface{}) (*Remoter, er
     if !exists {
         return nil, fmt.Errorf("conf not exists port")
     }
-    addr := fmt.Sprintf("%v:%v", r.Host, r.Port)
+    addr := net.JoinHostPort(r.Host, r.Port)
 
     auth := make([]ssh.AuthMethod, 0)
     if pass, ok := sshConf["password"].(string); ok {
         auth = append(auth, ssh.Password(pass))
     } else {
-        privKeyFileName := sshConf["privKey"].(string)
-        privKeyBytes, _ := ioutil.ReadFile(privKeyFileName)
+        privKeyFileName, exists := sshConf["privKey"].(string)
+        if !exists {
+            return nil, fmt.Errorf("conf not exists privKey")
+        }
+        privKeyBytes, err := ioutil.ReadFile(privKeyFileName)
+        if err != nil {
+            return nil, err
+        }
         privKey, err := ssh.ParsePrivateKey(privKeyBytes)
         if err != nil {
             return nil, err

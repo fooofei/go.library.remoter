@@ -5,6 +5,8 @@ import (
     "context"
     "encoding/json"
     "fmt"
+    "os"
+    "path/filepath"
     "time"
 )
 
@@ -107,7 +109,11 @@ func ExampleDeploy() {
     vms["connectTimeout"] = time.Second * 500
     vms["connectTryTimes"] = 4
     vms["cmdsTimeout"] = time.Second * 200
-    vms["privKey"] = "/Users/xxxx/.ssh/id_ed25519" // put ssh-key or password
+    homePath,err := os.UserHomeDir()
+    if err != nil {
+        panic(err)
+    }
+    vms["privKey"] = filepath.Join(homePath, ".ssh/id_ed25519") // put ssh-key or password
 
     fmt.Printf("vms= %v\n", jsonDumpsMap(vms))
     results := make(chan string, len(vms)*2)
