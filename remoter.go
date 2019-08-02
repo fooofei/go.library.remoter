@@ -24,12 +24,6 @@ type Remoter struct {
     Port string
 }
 
-type CmdResult struct {
-    Cmd string
-    Out []byte // stderr & stdout
-    Err error
-}
-
 func (r *Remoter) wait(waitCtx context.Context) chan bool {
     funcExit := make(chan bool, 1)
     go func() {
@@ -186,18 +180,18 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
 // Output run a command, and return stdout && stderr
 // Also return the executed command, when cmd is compose by prefix,
 // we need know cmd in caller
-func (r *Remoter) Output(waitCtx context.Context, cmd string) *CmdResult {
+func (r *Remoter) Output(waitCtx context.Context, cmd string) (string, []byte, error) {
     defer close(r.wait(waitCtx))
 
     clt := r.clt
     ssn, err := clt.NewSession()
     if err != nil {
-        return &CmdResult{cmd, nil, err}
+        return cmd, nil, err
     }
     // stdout stderr all in one
     b, err := ssn.CombinedOutput(cmd)
     _ = ssn.Close()
-    return &CmdResult{cmd, b, err}
+    return cmd, b, err
 }
 
 // Put local file to remote, remove remote first in case of exists

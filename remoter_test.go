@@ -35,11 +35,11 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
         bb.WriteString(fmt.Sprintf("--> ssh %s@%s -p %s exec %s\n",
             clt.User, clt.Host, clt.Port,
             cmd))
-        cr := clt.Output(waitCtx, cmd)
-        if cr.Err != nil {
-            bb.WriteString(fmt.Sprintf("err=%v\n", cr.Err))
+        _,out,err := clt.Output(waitCtx, cmd)
+        if err != nil {
+            bb.WriteString(fmt.Sprintf("err=%v\n", err))
         } else {
-            bb.WriteString(fmt.Sprintf("%s\n", cr.Out))
+            bb.WriteString(fmt.Sprintf("%s\n", out))
         }
     }
     close(noNeedWait)

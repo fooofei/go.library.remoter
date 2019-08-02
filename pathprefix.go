@@ -34,7 +34,7 @@ func (p *pathPrefix) Run(waitCtx context.Context, cmds []string, stdout io.Write
 }
 
 // Output with path prefix
-func (p *pathPrefix) Output(waitCtx context.Context, cmd string) *CmdResult {
+func (p *pathPrefix) Output(waitCtx context.Context, cmd string) (string, []byte, error) {
     return p.remoter.Output(waitCtx, fmt.Sprintf("cd %s && %s", p.prefix, cmd))
 }
 
