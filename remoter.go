@@ -12,6 +12,8 @@ import (
 )
 
 // 比 "golang.org/x/crypto/ssh" 的优势：依靠context 来做超时管理，随心所欲的结束任务
+// 同类别的 package https://github.com/cosiner/socker 更加复杂
+//    而且依旧没有能力使用 context 做即时退出
 
 type Remoter struct {
     clt    *ssh.Client
@@ -20,6 +22,12 @@ type Remoter struct {
     Host string
     User string
     Port string
+}
+
+type CmdResult struct {
+    Cmd string
+    Out []byte // stderr & stdout
+    Err error
 }
 
 func (r *Remoter) wait(waitCtx context.Context) chan bool {
@@ -35,14 +43,15 @@ func (r *Remoter) wait(waitCtx context.Context) chan bool {
 }
 
 // Copyed from ssh.Dial(), add context
-func (r *Remoter) dialContext(waitCtx context.Context, network, addr string, config *ssh.ClientConfig) (*ssh.Client, error) {
+func (r *Remoter) dialContext(waitCtx context.Context, network, addr string,
+    config *ssh.ClientConfig) (*ssh.Client, error) {
     d := net.Dialer{}
     conn, err := d.DialContext(waitCtx, network, addr)
     if err != nil {
         return nil, err
     }
     r.closer = conn
-    //
+
     defer close(r.wait(waitCtx))
     c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
     if err != nil {
@@ -124,6 +133,7 @@ func (r *Remoter) Close() error {
 // command not terminate by '\n' ,
 // commands not include "exit"
 // If a middle command fails, the next command will run ignore error
+// diff with Output() method, all command share one same stdout
 func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, stderr io.Writer) error {
     defer close(r.wait(waitCtx))
 
@@ -176,18 +186,18 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
 // Output run a command, and return stdout && stderr
 // Also return the executed command, when cmd is compose by prefix,
 // we need know cmd in caller
-func (r *Remoter) Output(waitCtx context.Context, cmd string) (string, []byte, error) {
+func (r *Remoter) Output(waitCtx context.Context, cmd string) *CmdResult {
     defer close(r.wait(waitCtx))
 
     clt := r.clt
     ssn, err := clt.NewSession()
     if err != nil {
-        return cmd, nil, err
+        return &CmdResult{cmd, nil, err}
     }
     // stdout stderr all in one
     b, err := ssn.CombinedOutput(cmd)
     _ = ssn.Close()
-    return cmd, b, err
+    return &CmdResult{cmd, b, err}
 }
 
 // Put local file to remote, remove remote first in case of exists

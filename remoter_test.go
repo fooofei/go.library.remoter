@@ -8,6 +8,7 @@ import (
     "os"
     "path/filepath"
     "time"
+    "testing"
 )
 
 // 例子：在主机上执行命令的集合，或者还可以有文件的传输
@@ -34,11 +35,11 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
         bb.WriteString(fmt.Sprintf("--> ssh %s@%s -p %s exec %s\n",
             clt.User, clt.Host, clt.Port,
             cmd))
-        _, out, err := clt.Output(waitCtx, cmd)
-        if err != nil {
-            bb.WriteString(fmt.Sprintf("err=%v\n", err))
+        cr := clt.Output(waitCtx, cmd)
+        if cr.Err != nil {
+            bb.WriteString(fmt.Sprintf("err=%v\n", cr.Err))
         } else {
-            bb.WriteString(fmt.Sprintf("%s\n", out))
+            bb.WriteString(fmt.Sprintf("%s\n", cr.Out))
         }
     }
     close(noNeedWait)
@@ -98,7 +99,8 @@ func jsonDumpsMap(m interface{}) string {
     return string(b)
 }
 
-func ExampleDeploy() {
+
+func TestDeploy(t *testing.T){
     vms := map[string]interface{}{
         "user":  "root",
         "host":  "1.1.1.1", // put your host here when test
@@ -141,6 +143,4 @@ func ExampleDeploy() {
 
     cancel()
     fmt.Printf("main exit")
-    // output:
-    // no output, output debug
 }
