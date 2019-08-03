@@ -46,8 +46,9 @@ func (r *Remoter) dialContext(waitCtx context.Context, network, addr string,
     }
     r.closer = conn
 
-    defer close(r.wait(waitCtx))
+    noNeedWait := r.wait(waitCtx)
     c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+    close(noNeedWait)
     if err != nil {
         return nil, err
     }
@@ -129,7 +130,6 @@ func (r *Remoter) Close() error {
 // If a middle command fails, the next command will run ignore error
 // diff with Output() method, all command share one same stdout
 func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, stderr io.Writer) error {
-    defer close(r.wait(waitCtx))
 
     clt := r.clt
     ssn, err := clt.NewSession()
@@ -173,7 +173,9 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
         return err
     }
     // all command after exit will not run
+    noNeedWait := r.wait(waitCtx)
     err = ssn.Wait()
+    close(noNeedWait)
     return err
 }
 
@@ -181,15 +183,17 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
 // Also return the executed command, when cmd is compose by prefix,
 // we need know cmd in caller
 func (r *Remoter) Output(waitCtx context.Context, cmd string) (string, []byte, error) {
-    defer close(r.wait(waitCtx))
-
+    // cannot use defer close(r.wait()) , defer may delay called,
+    // and cause a race condition
     clt := r.clt
     ssn, err := clt.NewSession()
     if err != nil {
         return cmd, nil, err
     }
     // stdout stderr all in one
+    noNeedWait := r.wait(waitCtx)
     b, err := ssn.CombinedOutput(cmd)
+    close(noNeedWait)
     _ = ssn.Close()
     return cmd, b, err
 }

@@ -6,9 +6,11 @@ import (
     "encoding/json"
     "fmt"
     "os"
+    "os/signal"
     "path/filepath"
-    "time"
+    "syscall"
     "testing"
+    "time"
 )
 
 // 例子：在主机上执行命令的集合，或者还可以有文件的传输
@@ -35,7 +37,7 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
         bb.WriteString(fmt.Sprintf("--> ssh %s@%s -p %s exec %s\n",
             clt.User, clt.Host, clt.Port,
             cmd))
-        _,out,err := clt.Output(waitCtx, cmd)
+        _, out, err := clt.Output(waitCtx, cmd)
         if err != nil {
             bb.WriteString(fmt.Sprintf("err=%v\n", err))
         } else {
@@ -99,19 +101,35 @@ func jsonDumpsMap(m interface{}) string {
     return string(b)
 }
 
+// wait CTRL+C to force quit
+func setupSignal(waitCtx context.Context, cancel context.CancelFunc) {
 
-func TestDeploy(t *testing.T){
+    sigCh := make(chan os.Signal, 2)
+
+    signal.Notify(sigCh, os.Interrupt)
+    signal.Notify(sigCh, syscall.SIGTERM)
+
+    go func() {
+        select {
+        case <-sigCh:
+            cancel()
+        case <-waitCtx.Done():
+        }
+    }()
+}
+
+func TestDeploy(t *testing.T) {
     vms := map[string]interface{}{
         "user":  "root",
         "host":  "1.1.1.1", // put your host here when test
         "port":  "22",
         "label": "China",
     }
-
+    fmt.Printf("pid= %v\n", os.Getpid())
     vms["connectTimeout"] = time.Second * 500
     vms["connectTryTimes"] = 4
     vms["cmdsTimeout"] = time.Second * 200
-    homePath,err := os.UserHomeDir()
+    homePath, err := os.UserHomeDir()
     if err != nil {
         panic(err)
     }
@@ -122,6 +140,7 @@ func TestDeploy(t *testing.T){
     online := make(chan map[string]interface{}, len(vms)*2)
     offline := make(chan map[string]interface{}, len(vms)*2)
     waitCtx, cancel := context.WithCancel(context.Background())
+    setupSignal(waitCtx, cancel)
     single(waitCtx, vms, results, online, offline)
 
     close(results)
