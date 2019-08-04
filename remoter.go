@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"sync"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -25,16 +26,19 @@ type Remoter struct {
 	Port string
 }
 
-func (r *Remoter) wait(waitCtx context.Context) chan bool {
+func (r *Remoter) wait(waitCtx context.Context) (chan bool, *sync.WaitGroup) {
 	funcExit := make(chan bool, 1)
+	waitGrp := new(sync.WaitGroup)
+	waitGrp.Add(1)
 	go func() {
 		select {
 		case <-funcExit:
 		case <-waitCtx.Done():
 			_ = r.closer.Close()
 		}
+		waitGrp.Done()
 	}()
-	return funcExit
+	return funcExit, waitGrp
 }
 
 // Copyed from ssh.Dial(), add context
@@ -47,9 +51,10 @@ func (r *Remoter) dialContext(waitCtx context.Context, network, addr string,
 	}
 	r.closer = conn
 
-	noNeedWait := r.wait(waitCtx)
+	noNeedWait, waitGrp := r.wait(waitCtx)
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	close(noNeedWait)
+	waitGrp.Wait()
 	if err != nil {
 		return nil, err
 	}
@@ -174,9 +179,10 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
 		return err
 	}
 	// all command after exit will not run
-	noNeedWait := r.wait(waitCtx)
+	noNeedWait, waitGrp := r.wait(waitCtx)
 	err = ssn.Wait()
 	close(noNeedWait)
+	waitGrp.Wait()
 	return err
 }
 
@@ -192,9 +198,14 @@ func (r *Remoter) Output(waitCtx context.Context, cmd string) (string, []byte, e
 		return cmd, nil, err
 	}
 	// stdout stderr all in one
-	noNeedWait := r.wait(waitCtx)
+	// BUG: there will have a race condition
+	//   sub routine and this routine operate same r.closer
+	noNeedWait, waitGrp := r.wait(waitCtx)
 	b, err := ssn.CombinedOutput(cmd)
+	// tell sub routine to exit
 	close(noNeedWait)
+	// wait sub routine exit
+	waitGrp.Wait()
 	_ = ssn.Close()
 	return cmd, b, err
 }

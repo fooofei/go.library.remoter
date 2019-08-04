@@ -1,26 +1,22 @@
 package goremoter
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"testing"
 	"time"
+
+	"gotest.tools/assert"
 )
 
 // 例子：在主机上执行命令的集合，或者还可以有文件的传输
 func singleRun(waitRootCtx context.Context, clt *Remoter,
-	cmdsTimeout time.Duration,
-	results chan string) {
+	cmdsTimeout time.Duration, t *testing.T) {
 
-	cmds := []string{
-		("echo hello"),
-	}
 	waitCtx, cancel := context.WithCancel(waitRootCtx)
 	noNeedWait := make(chan bool)
 	go func() {
@@ -32,20 +28,13 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
 		}
 	}()
 
-	bb := bytes.NewBufferString("")
-	for _, cmd := range cmds {
-		bb.WriteString(fmt.Sprintf("--> ssh %s@%s -p %s exec %s\n",
-			clt.User, clt.Host, clt.Port,
-			cmd))
-		_, out, err := clt.Output(waitCtx, cmd)
-		if err != nil {
-			bb.WriteString(fmt.Sprintf("err=%v\n", err))
-		} else {
-			bb.WriteString(fmt.Sprintf("%s\n", out))
-		}
+	_, out, err := clt.Output(waitCtx, "echo hello")
+	if err != nil {
+		t.Logf("err= %v", err)
+	} else {
+		assert.Equal(t, string(out), "hello\n")
 	}
 	close(noNeedWait)
-	results <- bb.String()
 }
 
 // 在单个主机上运行
@@ -54,8 +43,7 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
 // results 放命令运行结果的队列
 // online 连接成功后说明在线，放到这里
 // offline 连接失败后说明离线，放到这里
-func single(waitRootCtx context.Context, sshConf map[string]interface{}, results chan string,
-	online chan map[string]interface{}, offline chan map[string]interface{}) {
+func single(waitRootCtx context.Context, sshConf map[string]interface{}, t *testing.T) {
 	//把在一个主机上运行分为 2 个部分，
 	// 第 1 部分是 Dial， 连接主机，分几次重试，每次独立的超时
 	// 第 2 部分是命令执行，所有命令执行总时间设置超时
@@ -84,15 +72,11 @@ func single(waitRootCtx context.Context, sshConf map[string]interface{}, results
 	}
 
 	if err != nil {
-		results <- fmt.Sprintf("fail dial %v err=%v\n",
+		t.Errorf("fail dial %v err=%v\n",
 			sshConf, err)
-		offline <- sshConf
 		return
 	}
-
-	online <- sshConf
-
-	singleRun(waitRootCtx, clt, cmdsTimeout, results)
+	singleRun(waitRootCtx, clt, cmdsTimeout, t)
 	_ = clt.Close()
 }
 
@@ -121,11 +105,11 @@ func setupSignal(waitCtx context.Context, cancel context.CancelFunc) {
 func TestDeploy(t *testing.T) {
 	vms := map[string]interface{}{
 		"user":  "root",
-		"host":  "1.1.1.1", // put your host here when test
+		"host":  "114.115.186.13", // put your host here when test
 		"port":  "22",
 		"label": "China",
 	}
-	fmt.Printf("pid= %v\n", os.Getpid())
+	t.Logf("pid= %v\n", os.Getpid())
 	vms["connectTimeout"] = time.Second * 500
 	vms["connectTryTimes"] = 4
 	vms["cmdsTimeout"] = time.Second * 200
@@ -133,33 +117,12 @@ func TestDeploy(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+	// or vms["password"]= "xxx"
 	vms["privKey"] = filepath.Join(homePath, ".ssh/id_ed25519") // put ssh-key or password
 
-	fmt.Printf("vms= %v\n", jsonDumpsMap(vms))
-	results := make(chan string, len(vms)*2)
-	online := make(chan map[string]interface{}, len(vms)*2)
-	offline := make(chan map[string]interface{}, len(vms)*2)
 	waitCtx, cancel := context.WithCancel(context.Background())
 	setupSignal(waitCtx, cancel)
-	single(waitCtx, vms, results, online, offline)
-
-	close(results)
-	close(online)
-	close(offline)
-	fmt.Printf("results=\n")
-	for result := range results {
-		fmt.Printf("    %v\n", result)
-	}
-	fmt.Printf("online=\n")
-	for on := range online {
-		fmt.Printf("    %v\n", jsonDumpsMap(on))
-	}
-
-	fmt.Printf("offline=\n")
-	for off := range offline {
-		fmt.Printf("    %v\n", jsonDumpsMap(off))
-	}
+	single(waitCtx, vms, t)
 
 	cancel()
-	fmt.Printf("main exit")
 }

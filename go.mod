@@ -14,4 +14,5 @@ require (
 	golang.org/x/crypto v0.0.0-20190701094942-4def268fd1a4
 	golang.org/x/tools v0.0.0-20190802003818-e9bb7d36c060 // indirect
 	gopkg.in/yaml.v2 v2.2.2 // indirect
+	gotest.tools v2.3.0+incompatible
 )
