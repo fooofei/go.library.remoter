@@ -23,3 +23,5 @@ https://github.com/aeroxis/sultan
 [Golang]
 
 https://github.com/cosiner/socker
+
+这个库依旧不支持 `context.Context`。封装的太多了。
