@@ -230,7 +230,10 @@ func (r *Remoter) Put(waitCtx context.Context, local string, remote string) erro
 		_ = rf.Close()
 		return err
 	}
+	noWait, waitGrp := r.wait(waitCtx)
 	_, err = io.Copy(wf, rf)
+	close(noWait)
+	waitGrp.Wait()
 	_ = rf.Close()
 	_ = wf.Close()
 	_ = clt.Close()
@@ -256,7 +259,10 @@ func (r *Remoter) Get(waitCtx context.Context, remote string, local string) erro
 		_ = rf.Close()
 		return err
 	}
+	noWait, waitGrp := r.wait(waitCtx)
 	_, err = io.Copy(wf, rf)
+	close(noWait)
+	waitGrp.Wait()
 	_ = wf.Close()
 	_ = rf.Close()
 	_ = clt.Close()

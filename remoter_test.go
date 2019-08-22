@@ -34,6 +34,12 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
 	} else {
 		assert.Equal(t, string(out), "hello\n")
 	}
+
+	start := time.Now()
+	err = clt.Put(waitCtx, "/bigfile",
+		"/root/bigfile")
+	t.Logf("put err= %v take= %v(s)", err, int64(time.Since(start).Seconds()))
+
 	close(noNeedWait)
 }
 
@@ -105,14 +111,14 @@ func setupSignal(waitCtx context.Context, cancel context.CancelFunc) {
 func TestDeploy(t *testing.T) {
 	vms := map[string]interface{}{
 		"user":  "root",
-		"host":  "114.115.186.13", // put your host here when test
+		"host":  "1.1.1.1", // put your host here when test
 		"port":  "22",
 		"label": "China",
 	}
 	t.Logf("pid= %v\n", os.Getpid())
 	vms["connectTimeout"] = time.Second * 500
 	vms["connectTryTimes"] = 4
-	vms["cmdsTimeout"] = time.Second * 200
+	vms["cmdsTimeout"] = time.Second * 5
 	homePath, err := os.UserHomeDir()
 	if err != nil {
 		panic(err)
