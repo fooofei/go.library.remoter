@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net"
 	"os"
 	"sync"
@@ -13,20 +12,19 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// 比 "golang.org/x/crypto/ssh" 的优势：依靠context 来做超时管理，随心所欲的结束任务
+// 比 "golang.org/x/crypto/ssh" 的优势：依靠 context 来做超时管理，随心所欲的结束任务
 // 同类别的 package https://github.com/cosiner/socker 更加复杂
 //    而且依旧没有能力使用 context 做即时退出
 
 type Remoter struct {
 	clt    *ssh.Client
-	closer io.Closer // 记录 ssh 底层使用的 TCP 连接
-	// 为了有能力通过 context 退出
-	Host string
-	User string
-	Port string
+	closer io.Closer // 记录 ssh 底层使用的 TCP 连接 为了有能力通过 context 退出
+	Host   string
+	User   string
+	Port   string
 }
 
-func (r *Remoter) wait(waitCtx context.Context) (chan bool, *sync.WaitGroup) {
+func (r *Remoter) withContext(waitCtx context.Context) (chan bool, *sync.WaitGroup) {
 	funcExit := make(chan bool, 1)
 	waitGrp := new(sync.WaitGroup)
 	waitGrp.Add(1)
@@ -41,7 +39,7 @@ func (r *Remoter) wait(waitCtx context.Context) (chan bool, *sync.WaitGroup) {
 	return funcExit, waitGrp
 }
 
-// Copyed from ssh.Dial(), add context
+// dialContext is copy from ssh.Dial(), with add context arg
 func (r *Remoter) dialContext(waitCtx context.Context, network, addr string,
 	config *ssh.ClientConfig) (*ssh.Client, error) {
 	d := net.Dialer{}
@@ -51,7 +49,7 @@ func (r *Remoter) dialContext(waitCtx context.Context, network, addr string,
 	}
 	r.closer = conn
 
-	noNeedWait, waitGrp := r.wait(waitCtx)
+	noNeedWait, waitGrp := r.withContext(waitCtx)
 	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	close(noNeedWait)
 	waitGrp.Wait()
@@ -63,8 +61,7 @@ func (r *Remoter) dialContext(waitCtx context.Context, network, addr string,
 
 // Dial remote machine
 // sshConf["host"] = "1.1.1.1"
-// optional sshConf["password"]=""
-// sshConf["privKey"] = <fullPath>
+// sshConf["auth"] = ssh.AuthMethod
 // sshConf["port"] =
 // sshConf["user"] =
 func Dial(waitCtx context.Context, sshConf map[string]interface{}) (*Remoter, error) {
@@ -84,25 +81,11 @@ func Dial(waitCtx context.Context, sshConf map[string]interface{}) (*Remoter, er
 	}
 	addr := net.JoinHostPort(r.Host, r.Port)
 
-	auth := make([]ssh.AuthMethod, 0)
-	if pass, ok := sshConf["password"].(string); ok {
-		auth = append(auth, ssh.Password(pass))
-	} else {
-		privKeyFileName, exists := sshConf["privKey"].(string)
-		if !exists {
-			return nil, fmt.Errorf("conf not exists privKey")
-		}
-		privKeyBytes, err := ioutil.ReadFile(privKeyFileName)
-		if err != nil {
-			return nil, err
-		}
-		privKey, err := ssh.ParsePrivateKey(privKeyBytes)
-		if err != nil {
-			return nil, err
-		}
-		auth = append(auth, ssh.PublicKeys(privKey))
+	var auth []ssh.AuthMethod
+	auth, exists = sshConf["auth"].([]ssh.AuthMethod)
+	if !exists {
+		return nil, fmt.Errorf("conf not exists auth")
 	}
-
 	hostKeyCallback := func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 		return nil
 	}
@@ -179,7 +162,7 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
 		return err
 	}
 	// all command after exit will not run
-	noNeedWait, waitGrp := r.wait(waitCtx)
+	noNeedWait, waitGrp := r.withContext(waitCtx)
 	err = ssn.Wait()
 	close(noNeedWait)
 	waitGrp.Wait()
@@ -190,7 +173,7 @@ func (r *Remoter) Run(waitCtx context.Context, cmds []string, stdout io.Writer, 
 // Also return the executed command, when cmd is compose by prefix,
 // we need know cmd in caller
 func (r *Remoter) Output(waitCtx context.Context, cmd string) (string, []byte, error) {
-	// cannot use defer close(r.wait()) , defer may delay called,
+	// cannot use defer close(r.withContext()) , defer may delay called,
 	// and cause a race condition
 	clt := r.clt
 	ssn, err := clt.NewSession()
@@ -200,11 +183,11 @@ func (r *Remoter) Output(waitCtx context.Context, cmd string) (string, []byte, e
 	// stdout stderr all in one
 	// BUG: there will have a race condition
 	//   sub routine and this routine operate same r.closer
-	noNeedWait, waitGrp := r.wait(waitCtx)
+	noNeedWait, waitGrp := r.withContext(waitCtx)
 	b, err := ssn.CombinedOutput(cmd)
 	// tell sub routine to exit
 	close(noNeedWait)
-	// wait sub routine exit
+	// withContext sub routine exit
 	waitGrp.Wait()
 	_ = ssn.Close()
 	return cmd, b, err
@@ -230,7 +213,7 @@ func (r *Remoter) Put(waitCtx context.Context, local string, remote string) erro
 		_ = rf.Close()
 		return err
 	}
-	noWait, waitGrp := r.wait(waitCtx)
+	noWait, waitGrp := r.withContext(waitCtx)
 	_, err = io.Copy(wf, rf)
 	close(noWait)
 	waitGrp.Wait()
@@ -259,7 +242,7 @@ func (r *Remoter) Get(waitCtx context.Context, remote string, local string) erro
 		_ = rf.Close()
 		return err
 	}
-	noWait, waitGrp := r.wait(waitCtx)
+	noWait, waitGrp := r.withContext(waitCtx)
 	_, err = io.Copy(wf, rf)
 	close(noWait)
 	waitGrp.Wait()

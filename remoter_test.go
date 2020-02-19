@@ -2,7 +2,8 @@ package goremoter
 
 import (
 	"context"
-	"encoding/json"
+	"golang.org/x/crypto/ssh"
+	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -14,7 +15,7 @@ import (
 )
 
 // 例子：在主机上执行命令的集合，或者还可以有文件的传输
-func singleRun(waitRootCtx context.Context, clt *Remoter,
+func runCommandsOnRemoter(waitRootCtx context.Context, clt *Remoter,
 	cmdsTimeout time.Duration, t *testing.T) {
 
 	waitCtx, cancel := context.WithCancel(waitRootCtx)
@@ -49,8 +50,8 @@ func singleRun(waitRootCtx context.Context, clt *Remoter,
 // results 放命令运行结果的队列
 // online 连接成功后说明在线，放到这里
 // offline 连接失败后说明离线，放到这里
-func single(waitRootCtx context.Context, sshConf map[string]interface{}, t *testing.T) {
-	//把在一个主机上运行分为 2 个部分，
+func runCommandsOnHost(waitRootCtx context.Context, sshConf map[string]interface{}, t *testing.T) {
+	// 把在一个主机上运行分为 2 个部分，
 	// 第 1 部分是 Dial， 连接主机，分几次重试，每次独立的超时
 	// 第 2 部分是命令执行，所有命令执行总时间设置超时
 	connectTimeout := sshConf["connectTimeout"].(time.Duration)
@@ -78,20 +79,14 @@ func single(waitRootCtx context.Context, sshConf map[string]interface{}, t *test
 	}
 
 	if err != nil {
-		t.Errorf("fail dial %v err=%v\n",
-			sshConf, err)
+		t.Errorf("fail dial %v err=%v\n", sshConf, err)
 		return
 	}
-	singleRun(waitRootCtx, clt, cmdsTimeout, t)
+	runCommandsOnRemoter(waitRootCtx, clt, cmdsTimeout, t)
 	_ = clt.Close()
 }
 
-func jsonDumpsMap(m interface{}) string {
-	b, _ := json.Marshal(m)
-	return string(b)
-}
-
-// wait CTRL+C to force quit
+// withContext CTRL+C to force quit
 func setupSignal(waitCtx context.Context, cancel context.CancelFunc) {
 
 	sigCh := make(chan os.Signal, 2)
@@ -116,19 +111,27 @@ func TestDeploy(t *testing.T) {
 		"label": "China",
 	}
 	t.Logf("pid= %v\n", os.Getpid())
-	vms["connectTimeout"] = time.Second * 500
+	vms["connectTimeout"] = time.Second * 3
 	vms["connectTryTimes"] = 4
 	vms["cmdsTimeout"] = time.Second * 5
 	homePath, err := os.UserHomeDir()
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
-	// or vms["password"]= "xxx"
-	vms["privKey"] = filepath.Join(homePath, ".ssh/id_ed25519") // put ssh-key or password
+	keyPath := filepath.Join(homePath, ".ssh/id_ed25519") // put ssh-key or password
+	keyPEMBytes, err := ioutil.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privKey, err := ssh.ParsePrivateKey(keyPEMBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vms["auth"] = []ssh.AuthMethod{ssh.PublicKeys(privKey)}
 
 	waitCtx, cancel := context.WithCancel(context.Background())
 	setupSignal(waitCtx, cancel)
-	single(waitCtx, vms, t)
+	runCommandsOnHost(waitCtx, vms, t)
 
 	cancel()
 }
