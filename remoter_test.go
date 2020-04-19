@@ -2,7 +2,6 @@ package goremoter
 
 import (
 	"context"
-	"golang.org/x/crypto/ssh"
 	"io/ioutil"
 	"os"
 	"os/signal"
@@ -11,37 +10,41 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"gotest.tools/assert"
 )
+
+func canRunOtherCommandsAfterTimeout(waitRootCtx context.Context, clt *Remoter, t *testing.T) {
+	for i := 0; i < 5; i++ {
+		waitCtx, _ := context.WithTimeout(waitRootCtx, 2*time.Second)
+		t.Logf("enter %v", time.Now().Format(time.RFC3339))
+		_, _, err := clt.Output(waitCtx, "sleep 4")
+		t.Logf("leave %v err= %v", time.Now().Format(time.RFC3339), err)
+		_, out, err := clt.Output(waitRootCtx, "echo other")
+		if err != nil {
+			t.Logf("cannot execute command after timeout err= %v", err)
+		} else {
+			assert.Equal(t, string(out), "other\n")
+		}
+	}
+}
 
 // 例子：在主机上执行命令的集合，或者还可以有文件的传输
 func runCommandsOnRemoter(waitRootCtx context.Context, clt *Remoter,
 	cmdsTimeout time.Duration, t *testing.T) {
-
-	waitCtx, cancel := context.WithCancel(waitRootCtx)
-	noNeedWait := make(chan bool)
-	go func() {
-		select {
-		case <-waitCtx.Done():
-		case <-time.After(cmdsTimeout):
-			cancel()
-		case <-noNeedWait:
-		}
-	}()
-
+	waitCtx, _ := context.WithTimeout(waitRootCtx, cmdsTimeout)
 	_, out, err := clt.Output(waitCtx, "echo hello")
 	if err != nil {
 		t.Logf("err= %v", err)
 	} else {
 		assert.Equal(t, string(out), "hello\n")
 	}
-
+	canRunOtherCommandsAfterTimeout(waitRootCtx, clt, t)
 	start := time.Now()
 	err = clt.Put(waitCtx, "/bigfile",
 		"/root/bigfile")
 	t.Logf("put err= %v take= %v(s)", err, int64(time.Since(start).Seconds()))
-
-	close(noNeedWait)
 }
 
 // 在单个主机上运行
@@ -61,18 +64,8 @@ func runCommandsOnHost(waitRootCtx context.Context, sshConf map[string]interface
 	var clt *Remoter
 	var err error
 	for i := 0; i < connectTryTimes; i++ {
-		waitCtx, cancel := context.WithCancel(waitRootCtx)
-		noNeedWait := make(chan bool)
-		go func() {
-			select {
-			case <-waitCtx.Done():
-			case <-time.After(connectTimeout):
-				cancel()
-			case <-noNeedWait:
-			}
-		}()
+		waitCtx, _ := context.WithTimeout(waitRootCtx, connectTimeout)
 		clt, err = Dial(waitCtx, sshConf)
-		close(noNeedWait)
 		if err == nil {
 			break
 		}
