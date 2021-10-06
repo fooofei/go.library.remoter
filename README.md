@@ -20,8 +20,12 @@ https://github.com/jerkeeler/rcktship
 https://github.com/aeroxis/sultan
 
 
-[Golang]
+[Golang] 这个库依旧不支持 `context.Context`。封装的太多了。
 
 https://github.com/cosiner/socker
 
-这个库依旧不支持 `context.Context`。封装的太多了。
+
+
+[Golang] 把 shell 命令解析为数据结构，然后执行这个数据结构，这个比较工作量大
+
+https://github.com/mvdan/sh
